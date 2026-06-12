@@ -1219,7 +1219,7 @@ static int sp_256_proj_point_dbl_sm2_5_nb(sp_ecc_ctx_t* sp_ctx, sp_point_256* r,
         const sp_point_256* p, sp_digit* t)
 {
     int err = FP_WOULDBLOCK;
-    sp_256_proj_point_dbl_5_ctx* ctx = (sp_256_proj_point_dbl_sm2_5_ctx*)sp_ctx->data;
+    sp_256_proj_point_dbl_5_ctx* ctx = (sp_256_proj_point_dbl_5_ctx*)sp_ctx->data;
 
     typedef char ctx_size_test[sizeof(sp_256_proj_point_dbl_5_ctx) >= sizeof(*sp_ctx) ? -1 : 1];
     (void)sizeof(ctx_size_test);
@@ -1479,7 +1479,7 @@ static int sp_256_proj_point_add_sm2_5_nb(sp_ecc_ctx_t* sp_ctx, sp_point_256* r,
     const sp_point_256* p, const sp_point_256* q, sp_digit* t)
 {
     int err = FP_WOULDBLOCK;
-    sp_256_proj_point_add_5_ctx* ctx = (sp_256_proj_point_add_sm2_5_ctx*)sp_ctx->data;
+    sp_256_proj_point_add_5_ctx* ctx = (sp_256_proj_point_add_5_ctx*)sp_ctx->data;
 
     /* Ensure only the first point is the same as the result. */
     if (q == r) {
@@ -2111,7 +2111,7 @@ static int sp_256_ecc_mulmod_sm2_5_nb(sp_ecc_ctx_t* sp_ctx, sp_point_256* r,
     const sp_point_256* g, const sp_digit* k, int map, int ct, void* heap)
 {
     int err = FP_WOULDBLOCK;
-    sp_256_ecc_mulmod_sm2_5_ctx* ctx = (sp_256_ecc_mulmod_5_ctx*)sp_ctx->data;
+    sp_256_ecc_mulmod_5_ctx* ctx = (sp_256_ecc_mulmod_5_ctx*)sp_ctx->data;
 
     typedef char ctx_size_test[sizeof(sp_256_ecc_mulmod_5_ctx) >= sizeof(*sp_ctx) ? -1 : 1];
     (void)sizeof(ctx_size_test);
@@ -4933,6 +4933,8 @@ static int sp_256_ecc_gen_k_sm2_5(WC_RNG* rng, sp_digit* k)
     }
     while (err == 0);
 
+    ForceZero(buf, sizeof(buf));
+
     return err;
 #else
     (void)rng;
@@ -5000,7 +5002,7 @@ int sp_ecc_make_key_sm2_256(WC_RNG* rng, mp_int* priv, ecc_point* pub, void* hea
 
 #ifdef WOLFSSL_VALIDATE_ECC_KEYGEN
     if (err == MP_OKAY) {
-            err = sp_256_ecc_mulmod_5(infinity, point, p256_sm2_order, 1, 1, NULL);
+            err = sp_256_ecc_mulmod_sm2_5(infinity, point, p256_sm2_order, 1, 1, NULL);
     }
     if (err == MP_OKAY) {
         if (sp_256_iszero_5(point->x) || sp_256_iszero_5(point->y)) {
@@ -5017,9 +5019,14 @@ int sp_ecc_make_key_sm2_256(WC_RNG* rng, mp_int* priv, ecc_point* pub, void* hea
     }
 
 #ifdef WOLFSSL_SP_SMALL_STACK
+    if (k != NULL) {
+        ForceZero(k, sizeof(sp_digit) * 5);
+    }
     XFREE(k, heap, DYNAMIC_TYPE_ECC);
     /* point is not sensitive, so no need to zeroize */
     XFREE(point, heap, DYNAMIC_TYPE_ECC);
+#else
+    ForceZero(k, sizeof(k));
 #endif
 
     return err;
@@ -5052,7 +5059,7 @@ int sp_ecc_make_key_256_nb(sp_ecc_ctx_t* sp_ctx, WC_RNG* rng, mp_int* priv,
 
     switch (ctx->state) {
         case 0:
-            err = sp_256_ecc_gen_k_5(rng, ctx->k);
+            err = sp_256_ecc_gen_k_sm2_5(rng, ctx->k);
             if (err == MP_OKAY) {
                 err = FP_WOULDBLOCK;
                 ctx->state = 1;
@@ -5073,8 +5080,8 @@ int sp_ecc_make_key_256_nb(sp_ecc_ctx_t* sp_ctx, WC_RNG* rng, mp_int* priv,
             break;
     #ifdef WOLFSSL_VALIDATE_ECC_KEYGEN
         case 2:
-            err = sp_256_ecc_mulmod_5_nb((sp_ecc_ctx_t*)&ctx->mulmod_ctx,
-                      infinity, ctx->point, p256_sm2_order, 1, 1);
+            err = sp_256_ecc_mulmod_sm2_5_nb((sp_ecc_ctx_t*)&ctx->mulmod_ctx,
+                      infinity, ctx->point, p256_sm2_order, 1, 1, heap);
             if (err == MP_OKAY) {
                 if (sp_256_iszero_5(ctx->point->x) ||
                     sp_256_iszero_5(ctx->point->y)) {
@@ -5202,8 +5209,17 @@ int sp_ecc_secret_gen_sm2_256(const mp_int* priv, const ecc_point* pub, byte* ou
     }
 
 #ifdef WOLFSSL_SP_SMALL_STACK
+    if (k != NULL) {
+        ForceZero(k, sizeof(sp_digit) * 5);
+    }
+    if (point != NULL) {
+        ForceZero(point, sizeof(sp_point_256));
+    }
     XFREE(k, heap, DYNAMIC_TYPE_ECC);
     XFREE(point, heap, DYNAMIC_TYPE_ECC);
+#else
+    ForceZero(k, sizeof(k));
+    ForceZero(point, sizeof(point));
 #endif
 
     return err;
@@ -5580,7 +5596,7 @@ int sp_ecc_sign_sm2_256(const byte* hash, word32 hashLen, WC_RNG* rng,
         }
     }
 
-    if (i == 0) {
+    if ((err == MP_OKAY) && (i == 0)) {
         err = RNG_FAILURE_E;
     }
 
@@ -5593,7 +5609,7 @@ int sp_ecc_sign_sm2_256(const byte* hash, word32 hashLen, WC_RNG* rng,
 
 #if (defined(WOLFSSL_SP_SMALL) || defined(WOLFSSL_SMALL_STACK)) && !defined(WOLFSSL_SP_NO_MALLOC)
     if (d != NULL) {
-        XMEMSET(d, 0, sizeof(sp_digit) * 8 * 5);
+        ForceZero(d, sizeof(sp_digit) * 8 * 2 * 5);
         XFREE(d, heap, DYNAMIC_TYPE_ECC);
     }
     if (point != NULL) {
@@ -5603,7 +5619,6 @@ int sp_ecc_sign_sm2_256(const byte* hash, word32 hashLen, WC_RNG* rng,
     XMEMSET(e, 0, sizeof(sp_digit) * 2U * 5U);
     XMEMSET(x, 0, sizeof(sp_digit) * 2U * 5U);
     XMEMSET(k, 0, sizeof(sp_digit) * 2U * 5U);
-    XMEMSET(r, 0, sizeof(sp_digit) * 2U * 5U);
     XMEMSET(r, 0, sizeof(sp_digit) * 2U * 5U);
     XMEMSET(tmp, 0, sizeof(sp_digit) * 4U * 2U * 5U);
 #endif
@@ -5951,8 +5966,15 @@ int sp_ecc_check_key_sm2_256(const mp_int* pX, const mp_int* pY,
     }
 
 #ifdef WOLFSSL_SP_SMALL_STACK
+    if (priv != NULL) {
+        ForceZero(priv, sizeof(sp_digit) * 5);
+    }
     XFREE(pub, heap, DYNAMIC_TYPE_ECC);
     XFREE(priv, heap, DYNAMIC_TYPE_ECC);
+#else
+    if (privm != NULL) {
+        ForceZero(priv, sizeof(priv));
+    }
 #endif
 
     return err;

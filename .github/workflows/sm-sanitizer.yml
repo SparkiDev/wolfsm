@@ -1,0 +1,77 @@
+name: SM Algorithm Sanitizer Test
+
+on:
+  push:
+    branches: [ 'master', 'main', 'release/**' ]
+  pull_request:
+    branches: [ '**' ]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    uses: ./.github/workflows/_resolve-wolfssl.yml
+
+  sanitizer:
+    name: ${{ matrix.sanitizer.name }} ${{ matrix.config.name }} (wolfSSL ${{ matrix.wolfssl-ref }})
+    needs: resolve
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        wolfssl-ref: ${{ fromJson(needs.resolve.outputs.refs) }}
+        config:
+          - name: sp-c
+            cflags: '-DWOLFSSL_SP_SMALL_STACK -DWOLFSSL_SMALL_STACK'
+          - name: sp-validate-keygen
+            cflags: '-DWOLFSSL_VALIDATE_ECC_KEYGEN'
+        sanitizer:
+          - name: ASan
+            cflags: '-fsanitize=address -fno-omit-frame-pointer -g -O1'
+          - name: UBSan
+            cflags: '-fsanitize=undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -g'
+    env:
+      SM_FLAGS: >-
+        --enable-sm3 --enable-sm4-ecb --enable-sm4-cbc --enable-sm4-ctr
+        --enable-sm4-gcm --enable-sm4-ccm --enable-sm2 --enable-sp
+    steps:
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y autoconf automake libtool
+
+      - name: Checkout wolfsm
+        uses: actions/checkout@v4
+
+      - name: Build wolfSSL with wolfsm (${{ matrix.sanitizer.name }})
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch ${{ matrix.wolfssl-ref }} \
+              https://github.com/wolfSSL/wolfssl.git ../wolfssl
+          ./install.sh ../wolfssl
+          cd ../wolfssl
+          ./autogen.sh
+          ./configure $SM_FLAGS \
+              CFLAGS="${{ matrix.config.cflags }} ${{ matrix.sanitizer.cflags }}"
+          make -j"$(nproc)"
+
+      - name: wolfCrypt test (${{ matrix.sanitizer.name }})
+        working-directory: ../wolfssl
+        env:
+          ASAN_OPTIONS: detect_leaks=0
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: ./wolfcrypt/test/testwolfcrypt
+
+      - name: SM2 cipher-suite unit test (${{ matrix.sanitizer.name }})
+        working-directory: ../wolfssl
+        env:
+          ASAN_OPTIONS: detect_leaks=0
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: ./tests/unit.test ./tests/test-sm2.conf

@@ -457,6 +457,10 @@ static void sm4_key_schedule(const byte* key, word32* ks)
         ks[i] = ks[i - 4] ^ (t ^ rotlFixed(t, 13) ^ rotlFixed(t, 23));
     }
 #endif
+    /* Round-key material must not be left on the stack. */
+    ForceZero(k, sizeof(k));
+    ForceZero(&t, sizeof(t));
+    ForceZero(&x, sizeof(x));
 #else
     word32* ck = sm4_ck;
 
@@ -672,10 +676,13 @@ void wc_Sm4Free(wc_Sm4* sm4)
     if (sm4 != NULL) {
         /* Must zeroize key schedule. */
         ForceZero(sm4->ks, sizeof(sm4->ks));
-    #if defined(WOLFSSL_SM4_CTR)
-        /* For CBC, tmp is cipher text - no need to zeroize. */
-        /* For CTR, tmp is encrypted counter that must be zeroized. */
+    #if defined(WOLFSSL_SM4_CBC) || defined(WOLFSSL_SM4_CTR)
+        /* CTR keystream and CBC decrypt plaintext both land in tmp. */
         ForceZero(sm4->tmp, sizeof(sm4->tmp));
+    #endif
+    #ifdef WOLFSSL_SM4_GCM
+        /* gcm.H is the GHASH subkey derived from the key. */
+        ForceZero(&sm4->gcm, sizeof(sm4->gcm));
     #endif
     }
 }
@@ -1232,6 +1239,8 @@ static void sm4_gcm_encrypt_c(wc_Sm4* sm4, byte* out, const byte* in, word32 sz,
             in += SM4_BLOCK_SIZE;
             c += SM4_BLOCK_SIZE;
         }
+
+        ForceZero(scratch, sizeof(scratch));
     }
 
     if (partial != 0) {
@@ -1253,6 +1262,9 @@ static void sm4_gcm_encrypt_c(wc_Sm4* sm4, byte* out, const byte* in, word32 sz,
 #endif
     /* XOR the encrypted initial counter into tag. */
     xorbuf(tag, encCounter, tagSz);
+
+    ForceZero(counter, sizeof(counter));
+    ForceZero(encCounter, sizeof(encCounter));
 }
 
 /* Decrypt bytes using SM4-GCM implementation in C.
@@ -1377,6 +1389,11 @@ static int sm4_gcm_decrypt_c(wc_Sm4* sm4, byte* out, const byte* in, word32 sz,
         ret = res & SM4_GCM_AUTH_E;
     #endif
     }
+
+    ForceZero(counter, sizeof(counter));
+    ForceZero(calcTag, sizeof(calcTag));
+    ForceZero(scratch, sizeof(scratch));
+
     return ret;
 }
 
@@ -1686,6 +1703,8 @@ static WC_INLINE void sm4_ccm_crypt(wc_Sm4* sm4, byte* out, const byte* in,
         /* Copy cipher text out. */
         XMEMCPY(out, a, sz);
     }
+
+    ForceZero(a, sizeof(a));
 }
 
 /* Calculate authentication tag for SM4-CCM.
@@ -1744,6 +1763,9 @@ static WC_INLINE void sm4_ccm_calc_auth_tag(wc_Sm4* sm4, const byte* plain,
     sm4_encrypt(sm4->ks, b, t);
     /* XOR in other authentication tag data. */
     xorbufout(tag, t, a, tagSz);
+
+    ForceZero(a, sizeof(a));
+    ForceZero(t, sizeof(t));
 }
 
 /* Encrypt bytes using SM4-CCM implementation in C.
@@ -1781,6 +1803,8 @@ static void sm4_ccm_encrypt_c(wc_Sm4* sm4, byte* out, const byte* in, word32 sz,
         /* Encrypt plaintext to cipher text. */
         sm4_ccm_crypt(sm4, out, in, sz, b, ctrSz);
     }
+
+    ForceZero(b, sizeof(b));
 }
 
 /* Decrypt bytes using SM4-CCM implementation in C.
@@ -1836,6 +1860,9 @@ static int sm4_ccm_decrypt_c(wc_Sm4* sm4, byte* out, const byte* in, word32 sz,
         ret = SM4_CCM_AUTH_E;
     }
 
+    ForceZero(b, sizeof(b));
+    ForceZero(t, sizeof(t));
+
     return ret;
 }
 
@@ -1880,6 +1907,13 @@ int wc_Sm4CcmEncrypt(wc_Sm4* sm4, byte* out, const byte* in, word32 sz,
     /* Nonce must be within supported range. */
     if ((nonceSz < CCM_NONCE_MIN_SZ) || (nonceSz > CCM_NONCE_MAX_SZ)) {
         ret = BAD_FUNC_ARG;
+    }
+    /* Message length must fit the CCM length field of (15 - nonceSz) bytes. */
+    if (ret == 0) {
+        word32 ctrSz = (word32)SM4_BLOCK_SIZE - 1 - nonceSz;
+        if ((ctrSz < sizeof(sz)) && (sz > (((word32)1 << (8 * ctrSz)) - 1))) {
+            ret = BAD_FUNC_ARG;
+        }
     }
 
     /* Ensure a key has been set. */
@@ -1942,6 +1976,13 @@ int wc_Sm4CcmDecrypt(wc_Sm4* sm4, byte* out, const byte* in, word32 sz,
     /* Nonce must be within supported range. */
     if ((nonceSz < CCM_NONCE_MIN_SZ) || (nonceSz > CCM_NONCE_MAX_SZ)) {
         ret = BAD_FUNC_ARG;
+    }
+    /* Message length must fit the CCM length field of (15 - nonceSz) bytes. */
+    if (ret == 0) {
+        word32 ctrSz = (word32)SM4_BLOCK_SIZE - 1 - nonceSz;
+        if ((ctrSz < sizeof(sz)) && (sz > (((word32)1 << (8 * ctrSz)) - 1))) {
+            ret = BAD_FUNC_ARG;
+        }
     }
 
     /* Ensure a key has been set. */

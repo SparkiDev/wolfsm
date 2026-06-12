@@ -576,13 +576,17 @@ int wc_ecc_sm2_sign_hash_ex(const byte* hash, word32 hashSz, WC_RNG* rng,
     }
 
 #ifdef WOLFSSL_SMALL_STACK
-    XFREE(pub, key->heap, DYNAMIC_TYPE_ECC);
-    XFREE(data, key->heap, DYNAMIC_TYPE_ECC);
+    if (key != NULL) {
+        XFREE(pub, key->heap, DYNAMIC_TYPE_ECC);
+        XFREE(data, key->heap, DYNAMIC_TYPE_ECC);
+    }
 #endif
 #else
     (void)hashSz;
 
-    err = NOT_COMPILED_IN;
+    if (err == MP_OKAY) {
+        err = NOT_COMPILED_IN;
+    }
 #endif
 
     return err;
@@ -667,8 +671,10 @@ int wc_ecc_sm2_sign_hash(const byte* hash, word32 hashSz, byte* sig,
 
 #ifdef WOLFSSL_SMALL_STACK
     /* Free allocated data. */
-    XFREE(s, key->heap, DYNAMIC_TYPE_ECC);
-    XFREE(r, key->heap, DYNAMIC_TYPE_ECC);
+    if (key != NULL) {
+        XFREE(s, key->heap, DYNAMIC_TYPE_ECC);
+        XFREE(r, key->heap, DYNAMIC_TYPE_ECC);
+    }
 #endif
 
     return err;
@@ -954,12 +960,16 @@ int wc_ecc_sm2_verify_hash_ex(mp_int *r, mp_int *s, const byte *hash,
 
 #ifdef WOLFSSL_SMALL_STACK
     /* Free allocated data. */
-    XFREE(data, key->heap, DYNAMIC_TYPE_ECC);
+    if (key != NULL) {
+        XFREE(data, key->heap, DYNAMIC_TYPE_ECC);
+    }
 #endif
 #else
     (void)hashSz;
 
-    err = NOT_COMPILED_IN;
+    if (err == MP_OKAY) {
+        err = NOT_COMPILED_IN;
+    }
 #endif
 
     return err;
@@ -1059,8 +1069,10 @@ int wc_ecc_sm2_verify_hash(const byte* sig, word32 sigSz, const byte* hash,
 
 #ifdef WOLFSSL_SMALL_STACK
     /* Free allocated data. */
-    XFREE(s, key->heap, DYNAMIC_TYPE_ECC);
-    XFREE(r, key->heap, DYNAMIC_TYPE_ECC);
+    if (key != NULL) {
+        XFREE(s, key->heap, DYNAMIC_TYPE_ECC);
+        XFREE(r, key->heap, DYNAMIC_TYPE_ECC);
+    }
 #endif
 
     return err;
